@@ -12,6 +12,80 @@ import os
 import sys
 from pymoab import core, types
 
+def smooth_torus(num_phi, num_theta, phi_list, theta_list, phi_smooth_step, theta_smooth_step, radial_distances):
+    
+    phi_list = np.linspace(0,90,num_phi)
+    theta_list = np.linspace(0,360,num_theta)
+
+    #smooth each slice in poloidal direction
+    for i in range(num_phi):
+
+        #go around poloidal slice
+        for k in range(num_theta):
+
+            smoothingList = []
+            #smooth over specified interval
+            if k%theta_smooth_step == 0:
+                
+                for l in range(theta_smooth_step):
+                    
+                    smoothingList.append(radial_distances[i][k+l])
+                    
+                minDistance = min(smoothingList)
+
+                #write over the values in the smoothed range with the minimum
+                for l in range(theta_smooth_step):
+                    radial_distances[i][k+l] = minDistance
+    
+    #loop over poloidal slices indexes
+    for i in range(num_phi):                    
+    #check if at the start of a smoothing segment toroidally
+        if i%phi_smooth_step == 0:
+            #go around poloidal indexes
+            for j in range(num_theta):
+                smoothingList = []
+                
+                #smooth over specified interval
+                for k in range(phi_smooth_step):
+                    smoothingList.append(radial_distances[i+k][j])
+                    
+                #get the minimum distance
+                minDistance = min(smoothingList)
+
+                for k in range(phi_smooth_step):
+                    radial_distances[i+k][j] = minDistance
+                    
+        #set start and end of each slice to their average
+    for slice in radial_distances:
+        start = slice[0]
+        end = slice[-1]
+        average = (start+end)/2
+        slice[:theta_smooth_step] = average
+        slice[len(slice)-theta_smooth_step:] = average
+
+    #fit polynomial of appropriate degree and write new distance values using the polynomial in poloidal and then toroidal direction
+    
+    #poloidal
+    for slice in range(num_phi):
+        radial_distances[slice] = np.polynomial.polynomial.Polynomial.fit(theta_list, radial_distances[slice], int(num_theta/theta_smooth_step))(theta_list)
+    
+    #toroidal
+    for line in range(num_theta):
+        radial_distances[:,line] = np.polynomial.polynomial.Polynomial.fit(phi_list, radial_distances[:,line], int(num_phi/phi_smooth_step))(phi_list)
+
+
+
+
+    """#set matching points at the ends of the peroid equal to the smaller value
+    for i in range(num_theta):
+        start = radial_distances[0][i]
+        end = radial_distances[-1][i]
+        smaller = min([start, end])
+        radial_distances[0][i] = smaller
+        radial_distances[-1][i] = smaller"""
+
+
+    return(radial_distances)
 
 def cubit_export(components, export, magnets):
     """Export H5M neutronics model via Cubit.
