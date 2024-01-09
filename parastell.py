@@ -1,5 +1,5 @@
-import source_mesh
 import magnet_coils
+import source_mesh
 import log
 import read_vmec
 import cadquery as cq
@@ -12,12 +12,172 @@ import os
 import sys
 from pymoab import core, types
 
-def smooth_torus(num_phi, num_theta, phi_list, theta_list, phi_smooth_step, theta_smooth_step, radial_distances):
+def get_radial_real_estate(point_list, coil_path, num_phi, num_theta):
+    """
+    point_list should be 2-D with (x,y,z) inner elements
+
+
+    """
+    cubit.cmd('reset')
+    #make the points in the order given
+    for point in point_list:
+        cubit.cmd("create vertex " + str(point[0]) + " " + str(point[1]) + " " + str(point[2]))
     
+    #import coils for measuring
+    cubit.cmd('import step ' + coil_path + ' heal')
+
+    #get list of all volumes IDs
+    volumes = cubit.get_entities("volume")
+
+    #composite coil surfaces
+    for vol in volumes:
+        surfaces = cubit.get_relatives("volume", vol, "surface")
+        cubit.cmd("composite create surface " + str(surfaces).replace('(','').replace(')','').replace(',',''))
+
+    #get list of all vertex IDs
+    points = cubit.get_entities("vertex")
+
+    #get list of surface IDs (the composited ones)
+    surfaces = cubit.get_entities("surface")
+
+    #Initialize list for storing distances
+    distances = []
+    
+    #offset for enlarging the bounding boxes slightly to make sure they get found
+    offset = 10 
+
+    #one vector for projection
+    u1 = np.array([0,0,1])
+
+    #loop over all points, measure to every coil, and keep the minimum value
+    for point in points:
+        minDist = -1
+        for surf in surfaces:
+            boundingBox = cubit.get_bounding_box("surface", surf)
+            #check if point is in the bounding box +offset for a surface before measuring to it
+            vertex = cubit.get_center_point("vertex", point)
+            if boundingBox[0]-offset <= vertex[0] and vertex[0] <= boundingBox[1] + offset:
+                if boundingBox[3] - offset <= vertex[1] and vertex[1] <= boundingBox[4] + offset:
+                    if boundingBox[6] - offset <= vertex[2] and vertex [2] <= boundingBox[7] + offset:
+                        dist = cubit.measure_between_entities("surface", surf, "vertex", point)
+                        if minDist < 0 or dist[0] < minDist:
+                            minDist = dist[0]
+            
+        print("vertex " + str(point) + " of " + str(max(points)))
+        distances.append(minDist)
+    
+    #create 2D numpy array that corresponds to the specified theta, phi locations
+    distanceMatrix = np.zeros((num_phi, num_theta))
+
+    #write distance value to corresponding element
+    for i in range(num_phi):
+        for j in range(num_theta):
+            distanceMatrix[i][j] = distances[i*num_theta+j]
+    
+    with open('plasmaDistances.csv', 'w') as csvFile:
+        print('wrote plasmaDistances.csv')
+        csvwriter = csv.writer(csvFile)
+        csvwriter.writerows(distanceMatrix)
+
+    return distanceMatrix
+
+def smooth(mat, phi_list, theta_list, phi_range, theta_range, h, steps):
+    """
+    """
+    m, n = mat.shape
+
+    tor_ext = phi_list[-1] - phi_list[0]
+    pol_ext = theta_list[-1] - theta_list[0]
+
+    for step in range(steps):
+        deriv = np.zeros((m, n))
+        for i in range(phi_range[0], phi_range[1]+1):
+            for j in range(theta_range[0], theta_range[1]+1):
+                if j > 0:
+                    left_id = j - 1
+                    dtheta_p = np.abs(theta_list[j] - theta_list[left_id])
+                else:
+                    left_id = -2
+                    dtheta_p = np.abs(
+                        theta_list[j] - (theta_list[left_id] - pol_ext)
+                    )
+                
+                if j < n - 1:
+                    right_id = j + 1
+                    dtheta_n = np.abs(theta_list[j] - theta_list[right_id])
+                else:
+                    right_id = 1
+                    dtheta_n = np.abs(
+                        theta_list[j] - (theta_list[right_id] + pol_ext)
+                    )
+                
+                if i > 0:
+                    up_id = i - 1
+                    dphi_p = np.abs(phi_list[i] - phi_list[up_id])
+                else:
+                    up_id = -2
+                    dphi_p = np.abs(
+                        phi_list[i] - (phi_list[up_id] - tor_ext)
+                    )
+                
+                if i < m - 1:
+                    down_id = i + 1
+                    dphi_n = np.abs(phi_list[i] - phi_list[down_id])
+                else:
+                    down_id = 1
+                    dphi_n = np.abs(
+                        phi_list[i] - (phi_list[down_id] + tor_ext)
+                    )
+
+                d = (h/6)*(
+                    (2/dphi_p)*(1/dtheta_p + 1/dtheta_n)*mat[up_id,j]
+                    + (2/dphi_n)*(1/dtheta_p + 1/dtheta_n)*mat[down_id,j]
+                    + (2/dtheta_p)*(1/dphi_p + 1/dphi_n)*mat[i,left_id]
+                    + (2/dtheta_n)*(1/dphi_p + 1/dphi_n)*mat[i,right_id]
+                    + mat[up_id,left_id]/dphi_p/dtheta_p
+                    + mat[down_id,right_id]/dphi_n/dtheta_n
+                    + mat[up_id,right_id]/dphi_p/dtheta_n
+                    + mat[down_id,left_id]/dphi_n/dtheta_p
+                    - 5*(
+                        1/dphi_p/dtheta_p + 1/dphi_n/dtheta_n
+                        + 1/dphi_p/dtheta_n + 1/dphi_n/dtheta_p
+                    )*mat[i,j]
+                    )
+                if d < 0:
+                    deriv[i,j] = d
+
+        mat = mat + deriv
+
+    return mat
+
+def smooth_torus(num_phi, num_theta, phi_smooth_step, theta_smooth_step, radial_distances, h = None, steps = None):
+    """Take the radial_distances matrix generated by get_radial_real_estate and apply a polynomial fit in the the 
+    poloidal and toroidal directions, and smoothing algorithm (optional). 
+    
+    Arguments:
+        num_phi (int): number of poloidal 'slices' in the radial_distances matrix
+        num_theta (int): number of points in each 'slice'
+        phi_smooth_step (int): number of points to step through for finding local minimum in the toroidal direction.
+        num_phi/phi_smooth_step must be an integer
+        theta_smooth_step (int): number of points to step through for finding local minimum in the poloidal direction.
+        num_theta/theta_smooth_step must be an integer
+        radial_distances (np array, shape (num_phi, num_theta)): array generated by get_radial_real_estate of the minimum
+        coil to plasma distance at each toroidal, poloidal pair
+        h (int): parameter for smoothing algorithm, if None, smoothing will not be applied (default)
+        steps (int): parameter for smoothing algorithm, if None, smoothing will not be applied (default)
+
+    Returns:
+        radial_distances (np array, shape (num_phi, num_theta)): matrix of coil to plasma distance at each toroidal, poloidal pair after smoothing
+    """
+
+
     phi_list = np.linspace(0,90,num_phi)
     theta_list = np.linspace(0,360,num_theta)
 
-    #smooth each slice in poloidal direction
+    radial_distances = np.array(radial_distances).astype(float)
+
+    #smooth each slice in poloidal direction by finding the local minimum in each theta_smooth_step segment, then each phi_smooth_step segment
+    #and setting all values in that segment to the minimum
     for i in range(num_phi):
 
         #go around poloidal slice
@@ -55,11 +215,12 @@ def smooth_torus(num_phi, num_theta, phi_list, theta_list, phi_smooth_step, thet
                 for k in range(phi_smooth_step):
                     radial_distances[i+k][j] = minDistance
                     
-        #set start and end of each slice to their average
+    #set start and end of each slice to their average
     for slice in radial_distances:
         start = slice[0]
         end = slice[-1]
         average = (start+end)/2
+
         slice[:theta_smooth_step] = average
         slice[len(slice)-theta_smooth_step:] = average
 
@@ -67,25 +228,22 @@ def smooth_torus(num_phi, num_theta, phi_list, theta_list, phi_smooth_step, thet
     
     #poloidal
     for slice in range(num_phi):
-        radial_distances[slice] = np.polynomial.polynomial.Polynomial.fit(theta_list, radial_distances[slice], int(num_theta/theta_smooth_step))(theta_list)
+        radial_distances[slice] = np.polynomial.polynomial.Polynomial.fit(theta_list, radial_distances[slice], num_theta/theta_smooth_step)(theta_list)
     
     #toroidal
     for line in range(num_theta):
-        radial_distances[:,line] = np.polynomial.polynomial.Polynomial.fit(phi_list, radial_distances[:,line], int(num_phi/phi_smooth_step))(phi_list)
-
-
-
-
-    """#set matching points at the ends of the peroid equal to the smaller value
-    for i in range(num_theta):
-        start = radial_distances[0][i]
-        end = radial_distances[-1][i]
-        smaller = min([start, end])
-        radial_distances[0][i] = smaller
-        radial_distances[-1][i] = smaller"""
-
+        radial_distances[:,line] = np.polynomial.polynomial.Polynomial.fit(phi_list, radial_distances[:,line], num_phi/phi_smooth_step)(phi_list)
+    
+    #conditionally apply smoothing algorithm
+    if h is not None and steps is not None:
+        phi_range = (0, len(phi_list) - 1)
+        theta_range = (0, len(theta_list) - 1)
+        radial_distances = smooth(
+        radial_distances, phi_list, theta_list, phi_range, theta_range, h, steps
+        )
 
     return(radial_distances)
+
 
 def cubit_export(components, export, magnets):
     """Export H5M neutronics model via Cubit.
@@ -519,6 +677,9 @@ def stellarator_torus(
     # Initialize construction
     period = cq.Workplane("XY")
 
+    # Initialize list to store points
+    point_list = []
+
     # Generate poloidal profiles
     for phi in phi_list_exp:
         # Initialize points in poloidal profile
@@ -547,6 +708,9 @@ def stellarator_torus(
 
         # Generate poloidal profile
         period = period.spline(pts).close()
+
+        #append points to point_list
+        point_list.append(pts)
     
     # Loft along poloidal profiles to generate period
     period = period.loft()
@@ -568,7 +732,7 @@ def stellarator_torus(
         period = period_cut.rotate((0, 0, 0), (0, 0, 1), angle)
         torus = torus.union(period)
 
-    return torus, cutter
+    return torus, cutter, point_list
 
 
 def expand_ang(ang_list, num_ang):
@@ -630,7 +794,7 @@ export_def = {
 
 def parastell(
     plas_eq, num_periods, build, gen_periods, num_phi = 60,
-    num_theta = 100, magnets = None, source = None, export = export_def,
+    num_theta = 100, magnets = None, source = None, get_plasma_points = False, export = export_def,
     logger = None):
     """Generates CadQuery workplane objects for components of a
     parametrically-defined stellarator, based on user-supplied plasma
@@ -833,17 +997,29 @@ def parastell(
         # Build offset interpolator
         interp = RegularGridInterpolator((phi_list, theta_list), offset_mat)
         
-        # Generate component
-        try:
-            torus, cutter = stellarator_torus(
-                vmec, num_periods, s,
-                cutter, gen_periods,
-                phi_list_exp, theta_list_exp,
-                interp
-            )
-        except ValueError as e:
-            logger.error(e.args[0])
-            raise e
+        # Generate component and plasma_points list
+        if name == 'plasma': 
+            try:
+                torus, cutter, plasma_points = stellarator_torus(
+                    vmec, num_periods, s,
+                    cutter, gen_periods,
+                    phi_list_exp, theta_list_exp,
+                    interp
+                )
+            except ValueError as e:
+                logger.error(e.args[0])
+                raise e
+        else:
+            try:
+                torus, cutter, _ = stellarator_torus(
+                    vmec, num_periods, s,
+                    cutter, gen_periods,
+                    phi_list_exp, theta_list_exp,
+                    interp
+                )
+            except ValueError as e:
+                logger.error(e.args[0])
+                raise e
 
         # Store solid and name tag
         if name not in export_dict['exclude']:
@@ -880,6 +1056,11 @@ def parastell(
         raise e
     
     # Conditionally create source mesh
-    if source is not None:
+    if source is not None and get_radial_distances == False:
         strengths = source_mesh.source_mesh(vmec, source, logger = logger)
-        return strengths
+        return strengths, None
+    elif source is not None and get_radial_distances == True:
+        strengths = source_mesh.source_mesh(vmec, source, logger = logger)
+        return strengths, plasma_points
+    elif source is None and get_radial_distances == True:
+        return None, plasma_points

@@ -1,5 +1,6 @@
 import parastell
 import logging
+import csv
 
 
 # Define plasma equilibrium VMEC file
@@ -84,9 +85,14 @@ num_periods = 4
 # Define number of periods to generate
 gen_periods = 1
 # Define number of toroidal cross-sections to make
-num_phi = 60
+num_phi = 80
 # Define number of poloidal points to include in each toroidal cross-section
-num_theta = 60
+num_theta = 90
+# Define the number of points to step over in the poloidal direction for smoothing
+theta_smooth_step = 3
+# Define the number of points to step over in the toroidal direction for smoothing
+phi_smooth_step = 5
+
 # Define magnet coil parameters
 magnets = {
     'file': 'coils.txt',
@@ -96,7 +102,7 @@ magnets = {
     'sample': 6,
     'name': 'magnet_coils',
     'h5m_tag': 'magnets',
-    'meshing': True
+    'meshing': False
 }
 # Define source mesh parameters
 source = {
@@ -106,10 +112,10 @@ source = {
 }
 # Define export parameters
 export = {
-    'exclude': ['plasma'],
+    'exclude': [],
     'graveyard': False,
     'step_export': True,
-    'h5m_export': 'Cubit',
+    'h5m_export': None,
     'plas_h5m_tag': 'Vacuum',
     'sol_h5m_tag': 'Vacuum',
     # Note the following export parameters are used only for Cubit H5M exports
@@ -146,8 +152,20 @@ logger.addHandler(s_handler)
 logger.addHandler(f_handler)
 
 # Create stellarator
-parastell.parastell(
+strengths, point_list = parastell.parastell(
     plas_eq, num_periods, build, gen_periods, num_phi, num_theta,
-    magnets = magnets, source = source,
+    magnets = magnets, source = source, get_plasma_points = True,
     export = export, logger = logger
 )
+
+# find available radial distance and apply smoothing algorithm
+coil_path = 'magnet_coils.step'
+
+radial_distances = parastell.get_radial_real_estate(point_list, coil_path, num_phi, num_theta)
+radial_distances = parastell.smooth_torus(num_phi, num_theta, phi_smooth_step, theta_smooth_step, radial_distances, h=1, steps=25)
+
+#write out radial_distances to csv to avoid needing to recalculate it
+with open('radial_distances.csv', 'w') as csvFile:
+        csvwriter = csv.writer(csvFile)
+        csvwriter.writerows(radial_distances)
+
