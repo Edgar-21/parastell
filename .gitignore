@@ -135,3 +135,7 @@ dmypy.json
 *.step
 *.ods
 *.nc
+*.h5
+*.vtk
+*.cub
+*.cub5

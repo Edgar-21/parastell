@@ -1,89 +1,13 @@
 import parastell
 import logging
 import csv
+import numpy as np
+#### THIS GETS THE SMOOTHED RADIAL DISTANCE FROM SOL TO COILS AT EACH PHI,
+# THETA PAIR. IN THE DIRECTORY MUST EXIST A COILS STEP FILE NAME 'coils.step'
+# additionally it is recommended that num_phi/phi_smooth step should be an integer
+# likewise with theta
 
 
-# Define plasma equilibrium VMEC file
-plas_eq = 'plas_eq.nc'
-# Define radial build
-build = {
-    'phi_list': [0.0, 22.5, 45.0, 67.5, 90.0],
-    'theta_list': [0.0, 5.0, 90.0, 175.0, 180.0, 185.0, 270.0, 355.0, 360.0],
-    'wall_s': 1.2,
-    'radial_build': {
-        'first_wall': {
-            'thickness_matrix': [
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5]
-            ]
-        },
-        'breeder': {
-            'thickness_matrix': [
-                [100, 100, 30, 10, 10, 10, 30, 100, 100],
-                [30,  30,  10, 5,  5,  5,  20, 30,  30],
-                [25,  25,  25, 5,  5,  5,  25, 25,  25],
-                [30,  30,  20, 5,  5,  5,  10, 30,  30],
-                [100, 100, 30, 10, 10, 10, 30, 100, 100]
-            ]
-        },
-        'back_wall': {
-            'thickness_matrix': [
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5]
-            ]
-        },
-        'shield': {
-            'thickness_matrix': [
-                [25, 25, 25, 25, 25, 25, 25, 25, 25],
-                [25, 25, 25, 25, 25, 25, 25, 25, 25],
-                [25, 25, 25, 25, 25, 25, 25, 25, 25],
-                [25, 25, 25, 25, 25, 25, 25, 25, 25],
-                [25, 25, 25, 25, 25, 25, 25, 25, 25]
-            ]
-        },
-        'manifolds': {
-            'thickness_matrix': [
-                [50, 50, 15, 5,  5,  5,  15, 50, 50],
-                [20, 20, 5,  5,  5,  5,  15, 20, 20],
-                [15, 15, 15, 5,  5,  5,  15, 15, 15],
-                [20, 20, 15, 5,  5,  5,  5,  20, 20],
-                [50, 50, 15, 5,  5,  5,  15, 50, 50]
-            ]
-        },
-        'gap': {
-            'thickness_matrix': [
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5],
-                [5, 5, 5, 5, 5, 5, 5, 5, 5]
-            ],
-            'h5m_tag': 'Vacuum'
-        },
-        # Note that some neutron transport codes (such as OpenMC) will interpret
-        # materials with "vacuum" in the name as void material
-        'vacuum_vessel': {
-            'thickness_matrix': [
-                [15, 15, 15, 15, 15, 15, 15, 15, 15],
-                [15, 15, 15, 15, 15, 15, 15, 15, 15],
-                [15, 15, 15, 15, 15, 15, 15, 15, 15],
-                [15, 15, 15, 15, 15, 15, 15, 15, 15],
-                [15, 15, 15, 15, 15, 15, 15, 15, 15]
-            ],
-            'h5m_tag': 'vac_vessel'
-        }
-    }
-}
-# Define number of periods in stellarator plasma
-num_periods = 4
-# Define number of periods to generate
-gen_periods = 1
 # Define number of toroidal cross-sections to make
 num_phi = 80
 # Define number of poloidal points to include in each toroidal cross-section
@@ -92,6 +16,23 @@ num_theta = 90
 theta_smooth_step = 3
 # Define the number of points to step over in the toroidal direction for smoothing
 phi_smooth_step = 5
+
+# Define plasma equilibrium VMEC file
+plas_eq = 'plas_eq.nc'
+# Define radial build
+build = {
+    'phi_list': np.linspace(0,90,num_phi),
+    'theta_list': np.linspace(0,360, num_theta),
+    'wall_s': 1.2,
+    'radial_build': {
+    }
+}
+# Define number of periods in stellarator plasma
+num_periods = 4
+# Define number of periods to generate
+gen_periods = 1
+
+
 
 # Define magnet coil parameters
 magnets = {
@@ -154,7 +95,7 @@ logger.addHandler(f_handler)
 # Create stellarator
 strengths, point_list = parastell.parastell(
     plas_eq, num_periods, build, gen_periods, num_phi, num_theta,
-    magnets = magnets, source = source, get_plasma_points = True,
+    magnets = None, source = None, get_plasma_points = True,
     export = export, logger = logger
 )
 

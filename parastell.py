@@ -11,6 +11,7 @@ from scipy.interpolate import RegularGridInterpolator
 import os
 import sys
 from pymoab import core, types
+import csv
 
 def get_radial_real_estate(point_list, coil_path, num_phi, num_theta):
     """
@@ -20,9 +21,11 @@ def get_radial_real_estate(point_list, coil_path, num_phi, num_theta):
     """
     cubit.cmd('reset')
     #make the points in the order given
-    for point in point_list:
-        cubit.cmd("create vertex " + str(point[0]) + " " + str(point[1]) + " " + str(point[2]))
-    
+    for slice in point_list:
+        for point in slice:
+            cubit.cmd("create vertex " + str(point[0]) + " " + str(point[1]) + " " + str(point[2]))
+            print("create vertex " + str(point[0]) + " " + str(point[1]) + " " + str(point[2]))
+        
     #import coils for measuring
     cubit.cmd('import step ' + coil_path + ' heal')
 
@@ -228,11 +231,11 @@ def smooth_torus(num_phi, num_theta, phi_smooth_step, theta_smooth_step, radial_
     
     #poloidal
     for slice in range(num_phi):
-        radial_distances[slice] = np.polynomial.polynomial.Polynomial.fit(theta_list, radial_distances[slice], num_theta/theta_smooth_step)(theta_list)
+        radial_distances[slice] = np.polynomial.polynomial.Polynomial.fit(theta_list, radial_distances[slice], int(num_theta/theta_smooth_step))(theta_list)
     
     #toroidal
     for line in range(num_theta):
-        radial_distances[:,line] = np.polynomial.polynomial.Polynomial.fit(phi_list, radial_distances[:,line], num_phi/phi_smooth_step)(phi_list)
+        radial_distances[:,line] = np.polynomial.polynomial.Polynomial.fit(phi_list, radial_distances[:,line], int(num_phi/phi_smooth_step))(phi_list)
     
     #conditionally apply smoothing algorithm
     if h is not None and steps is not None:
@@ -443,20 +446,21 @@ def exports(export, components, magnets, logger):
             cq.exporters.export(comp['solid'], name + '.step')
             
         # Conditionally export tetrahedral meshing
-        if magnets['meshing']:
-            # Assign export paths
-            file_path = os.getcwd()
-            base_name = 'coil_mesh'
-            general_export_path = f"{cwd}/{base_name}"
-            exo_path = f'{general_export_path}.exo'
-            h5m_path = f'{general_export_path}.h5m'
-            # Exodus export
-            cubit.cmd(f'export mesh "{exo_path}"')
-            # Convert EXODUS to .h5m
-            mb = core.Core()
-            exodus_set = mb.create_meshset()
-            mb.load_file(exo_path, exodus_set)
-            mb.write_file(h5m_path, [exodus_set])
+        if magnets is not None:    
+            if magnets['meshing']:
+                # Assign export paths
+                file_path = os.getcwd()
+                base_name = 'coil_mesh'
+                general_export_path = f"{cwd}/{base_name}"
+                exo_path = f'{general_export_path}.exo'
+                h5m_path = f'{general_export_path}.h5m'
+                # Exodus export
+                cubit.cmd(f'export mesh "{exo_path}"')
+                # Convert EXODUS to .h5m
+                mb = core.Core()
+                exodus_set = mb.create_meshset()
+                mb.load_file(exo_path, exodus_set)
+                mb.write_file(h5m_path, [exodus_set])
     
     # Conditinally export H5M file via Cubit
     if export['h5m_export'] == 'Cubit':
@@ -747,6 +751,10 @@ def expand_ang(ang_list, num_ang):
     Returns:
         ang_list_exp (list of float): interpolated list of angles (deg).
     """
+    # check if interpolation is needed
+    if len(ang_list) == num_ang:
+        return ang_list
+    
     # Initialize interpolated list of angles
     ang_list_exp = []
 
@@ -998,7 +1006,7 @@ def parastell(
         interp = RegularGridInterpolator((phi_list, theta_list), offset_mat)
         
         # Generate component and plasma_points list
-        if name == 'plasma': 
+        if name == 'sol': 
             try:
                 torus, cutter, plasma_points = stellarator_torus(
                     vmec, num_periods, s,
@@ -1056,11 +1064,11 @@ def parastell(
         raise e
     
     # Conditionally create source mesh
-    if source is not None and get_radial_distances == False:
+    if source is not None and get_plasma_points == False:
         strengths = source_mesh.source_mesh(vmec, source, logger = logger)
         return strengths, None
-    elif source is not None and get_radial_distances == True:
+    elif source is not None and get_plasma_points == True:
         strengths = source_mesh.source_mesh(vmec, source, logger = logger)
         return strengths, plasma_points
-    elif source is None and get_radial_distances == True:
+    elif source is None and get_plasma_points == True:
         return None, plasma_points
