@@ -451,9 +451,16 @@ class MagnetSet(object):
                 z1 = fil1[index, 2]
                 z2 = fil2[index,2]
                 cubit.cmd(f'create curve location {x1} {y1} {z1} location {x2} {y2} {z2}')
-        lines = cubit.get_entities('curve') 	
-        for line in lines[0:-1]:
-            cubit.cmd(f'create surface skin curve {line} {line + 1}')
+            
+        lines = np.array(cubit.get_entities('curve'))
+        lines = np.reshape(lines, (len(self.filtered_filaments)-1,
+                                   len(self.filtered_filaments[0])))
+
+
+        for loop in lines:
+            for line in loop[0:-1]:
+                cubit.cmd(f'create surface skin curve {line} {line + 1}')
+            
 
     def mesh_magnets(self):
         """Creates tetrahedral mesh of magnet volumes via Coreform Cubit.
