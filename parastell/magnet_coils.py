@@ -244,7 +244,9 @@ class MagnetSet(object):
     def _set_filtered_filaments(self):
         """Cleans filament data such that only filaments within the toroidal
         extent of the model are included and filaments are sorted by toroidal
-        angle.
+        angle. Reorders points such that the filaments begin at the point on
+        the outboard side of the filament and go in order of increasing z
+        initially.
         (Internal function not intended to be called externally)
 
         Arguments:
@@ -298,8 +300,59 @@ class MagnetSet(object):
         phi_arr = (phi_arr + 2*np.pi) % (2*np.pi)
 
         # Sort filaments by toroidal angle
-        self.filtered_filaments = [
-            x for _, x in sorted(zip(phi_arr, reduced_fils))]
+        filtered_filaments = np.array([
+            x for _, x in sorted(zip(phi_arr, reduced_fils))])
+        
+        # change the start point
+        for filament_index, filament in enumerate(filtered_filaments):
+            min_z_index = None
+            min_z_radius = None
+
+            for index, point in enumerate(filament[0:-1]):
+                next_point = filament[index+1]
+                if point[2]/next_point[2] < 0:
+                    if min_z_radius is None:
+                        min_z_index = index
+                        min_z_radius = (point[0]**2+point[1]**2)**0.5
+                              
+                    elif min_z_radius < (point[0]**2+ point[1]**2)**0.5:
+                                min_z_index = index
+                                min_z_radius = (point[0]**2+point[1]**2)**0.5
+
+            # start the filament at the outboard, just above xy plane
+            reordered_filament = np.concatenate([filament[min_z_index:],
+                                                 filament[0:min_z_index]])
+            
+            # make sure z is increasing initially
+            if filament[min_z_index,2] > filament[min_z_index+1,2]:
+                   reordered_filament = np.flip(reordered_filament, axis=0)
+
+            # remove duplicate point since the start point might be different
+            _, idx = np.unique(reordered_filament, return_index=True, axis=0)
+            reordered_filament = reordered_filament[np.sort(idx)]
+            
+            # ensure filament is a closed loop
+            reordered_filament = np.concatenate([reordered_filament, [reordered_filament[0]]])
+
+            filtered_filaments[filament_index] = reordered_filament
+        # TODO figure out why this needs to get sorted a second time for these
+        # to end up in order
+        com_list = []
+
+        for fil in filtered_filaments:
+            com = np.average(fil, axis=0)
+            com_list.append(com)
+
+        com_list = np.array(com_list)
+        phi_arr = np.arctan2(com_list[:, 1], com_list[:, 0])
+
+        filtered_filaments = np.array(
+            [x for _,x in sorted(zip(phi_arr, filtered_filaments))])
+    
+        self.filtered_filaments = filtered_filaments
+
+
+
 
     def _cut_magnets(self, volume_ids):
         """Cleanly cuts the magnets at the planes defining the toriodal extent.
@@ -312,7 +365,8 @@ class MagnetSet(object):
             volume_ids (range): new volume ids corresponding to magnet volumes
                 following cutting operation
         """
-        # Define sweeping surface width
+        pass
+        """        # Define sweeping surface width
         # Multiply by factor of 2 to be conservative
         rec_width = 2*self.average_radial_distance
 
@@ -342,7 +396,7 @@ class MagnetSet(object):
         volume_ids = cubit.get_entities('volume')
 
         return volume_ids
-    
+        """
     def build_magnet_coils(self):
         """Builds each filament in self.filtered_filaments in cubit, then cuts
         to the toroidal extent using self._cut_magnets().
@@ -364,7 +418,7 @@ class MagnetSet(object):
             volume_id = magnet_coil.create_magnet()
             volume_ids.append(volume_id)
 
-        volume_ids = self._cut_magnets(volume_ids)
+        #volume_ids = self._cut_magnets(volume_ids)
 
         self.volume_ids = volume_ids
 
@@ -382,6 +436,24 @@ class MagnetSet(object):
         cubit_io.export_step_cubit(
             filename=step_filename, export_dir=export_dir
         )
+
+    def build_coil_surface(self):
+        """uses cubit to make a nice surface between filament pairs
+        """
+        for fil_index, _ in enumerate(self.filtered_filaments[0:-1]):
+            fil1 = self.filtered_filaments[fil_index]
+            fil2 = self.filtered_filaments[fil_index+1]
+            for index, _ in enumerate(fil1):
+                x1 = fil1[index,0]
+                x2 = fil2[index, 0]
+                y1 = fil1[index, 1]
+                y2 = fil2[index,1]
+                z1 = fil1[index, 2]
+                z2 = fil2[index,2]
+                cubit.cmd(f'create curve location {x1} {y1} {z1} location {x2} {y2} {z2}')
+        lines = cubit.get_entities('curve') 	
+        for line in lines[0:-1]:
+            cubit.cmd(f'create surface skin curve {line} {line + 1}')
 
     def mesh_magnets(self):
         """Creates tetrahedral mesh of magnet volumes via Coreform Cubit.
