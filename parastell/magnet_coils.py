@@ -60,6 +60,10 @@ class MagnetSet(object):
 
         for name in kwargs.keys() & ('start_line', 'sample_mod', 'scale', 'mat_tag'):
             self.__setattr__(name,kwargs[name])
+        
+        self._extract_filaments()
+        self._set_average_radial_distance()
+        self._set_filtered_filaments()
 
         cubit_io.init_cubit()
 
@@ -402,10 +406,6 @@ class MagnetSet(object):
         to the toroidal extent using self._cut_magnets().
         """
         self._logger.info('Constructing magnet coils...')
-
-        self._extract_filaments()
-        self._set_average_radial_distance()
-        self._set_filtered_filaments()
 
         self.magnet_coils = [
             MagnetCoil(filament, self.shape, self.shape_str)

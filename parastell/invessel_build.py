@@ -98,7 +98,7 @@ class InVesselBuild(object):
         
         self.repeat = 0
         self.num_ribs = 61
-        self.num_rib_pts = 67
+        self.num_rib_pts = 61
         self.scale = m2cm
 
         for name in kwargs.keys() & (
@@ -142,7 +142,7 @@ class InVesselBuild(object):
             raise e
     
     def _interpolate_offset_matrix(self, offset_mat):
-        """Interpolates total offset for expanded angle lists using cubic spline
+        """Interpolates total offset for expanded angle lists using pchip
         interpolation.
         (Internal function not intended to be called externally)
 
@@ -177,7 +177,6 @@ class InVesselBuild(object):
         self._logger.info(
             'Populating surface objects for in-vessel components...'
         )
-
         self._toroidal_angles_exp = expand_ang_list(
             self.radial_build.toroidal_angles,
             self.num_ribs
@@ -202,7 +201,6 @@ class InVesselBuild(object):
             interpolated_offset_mat = self._interpolate_offset_matrix(
                 offset_mat
             )
-
             self.Surfaces[name] = Surface(
                     self._vmec_obj, s, self._poloidal_angles_exp,
                     self._toroidal_angles_exp,
@@ -410,7 +408,7 @@ class Surface(object):
     def get_loci(self):
         """Returns the set of point-loci defining the ribs in the surface.
         """
-        return np.array([rib.rib_loci() for rib in self.Ribs])
+        return np.array([rib.rib_loci for rib in self.Ribs])
 
 
 class Rib(object):
