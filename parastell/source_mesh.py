@@ -30,7 +30,7 @@ def default_reaction_rate(n_i, T_i):
 
     rr = (
         3.68e-18
-        * (n_i**2)
+        * (n_i ** 2)
         / 4
         * T_i ** (-2 / 3)
         * np.exp(-19.94 * T_i ** (-1 / 3))
@@ -56,7 +56,7 @@ def default_plasma_conditions(s):
     # Temperature
     T_i = 11.5 * (1 - s)
     # Ion density
-    n_i = 4.8e20 * (1 - s**5)
+    n_i = 4.8e20 * (1 - s ** 5)
 
     return n_i, T_i
 
@@ -489,7 +489,7 @@ def generate_source_mesh():
         vmec_obj,
         source_mesh_dict["mesh_size"],
         source_mesh_dict["toroidal_extent"],
-        logger=logger**source_mesh_dict,
+        logger=logger ** source_mesh_dict,
     )
 
     source_mesh.create_vertices()

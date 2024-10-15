@@ -136,6 +136,9 @@ def build_magnet_surface(reordered_filaments):
 
 def measure_radial_distance(ribs):
     distances = []
+    cubit.cmd(
+        'import step "/groupspace/cnerg/users/epflug/BlanketNeutronics/fpp_11/neutronics_dcll/fpp11_one_period_no_overlap_imprinted_merged.step" heal'
+    )
     for rib in ribs:
         distance_subset = []
         for point, direction in zip(rib.rib_loci, rib._normals()):

@@ -43,11 +43,12 @@ def import_step_cubit(filename, import_dir):
         vol_id (int): Cubit volume ID of imported CAD solid.
     """
     init_cubit()
-
+    cubit.cmd("compress")
     import_path = Path(import_dir) / Path(filename).with_suffix(".step")
     cubit.cmd(f'import step "{import_path}" heal')
     vol_id = cubit.get_last_id("volume")
-
+    cubit.cmd(f"healer autoheal vol {vol_id} rebuild")
+    cubit.cmd("compress")
     return vol_id
 
 
@@ -63,6 +64,26 @@ def export_step_cubit(filename, export_dir=""):
 
     export_path = Path(export_dir) / Path(filename).with_suffix(".step")
     cubit.cmd(f'export step "{export_path}" overwrite')
+
+
+def import_cub5_cubit(filename, import_dir):
+    """imports cub5 file with Coreform Cubit.
+
+    Arguments:
+        filename (str): name of cub5 input file, excluding '.step' extension.
+        import_dir (str): directory from which to import cub5 file.
+
+    Returns:
+        vol_id (int): Cubit volume ID of imported CAD solid.
+    """
+    init_cubit()
+    cubit.cmd("compress")
+    import_path = Path(import_dir) / Path(filename).with_suffix(".cub5")
+    cubit.cmd(
+        f'import cubit "{import_path}" nofreesurfaces attributes_on separate_bodies'
+    )
+    vol_id = cubit.get_last_id("volume")
+    return vol_id
 
 
 def export_cub5(filename, export_dir=""):
@@ -177,3 +198,22 @@ def export_dagmc_cubit_native(
 
     export_path = Path(export_dir) / Path(filename).with_suffix(".h5m")
     cubit.cmd(f'export cf_dagmc "{export_path}" overwrite')
+
+
+def cubit_importer(filename, import_dir=""):
+    """Attempts to open a geometry file with the appropriate cubit_io function,
+        based on file extension
+
+    Arguments:
+        filename (path): Path to file to import, including the suffix
+        import_dir (str): directory from which to import cub5 file.
+
+    Returns:
+        vol_id (int): Cubit volume ID of imported CAD solid.
+    """
+    filename = Path(filename)
+    if filename.suffix == ".step" or filename.suffix == ".stp":
+        vol_id = import_step_cubit(filename, import_dir)
+    elif filename.suffix == ".cub5":
+        vol_id = import_cub5_cubit(filename, import_dir)
+    return vol_id

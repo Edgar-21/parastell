@@ -317,15 +317,19 @@ class Stellarator(object):
             )
             data["vol_id"] = vol_id
 
-    def _import_magnets_step(self):
+    def _import_magnets_geom(self):
         """Import STEP file for magnet set into Coreform Cubit.
         (Internal function not intended to be called externally)
         """
-        last_vol_id = cubit_io.import_step_cubit(
-            self.magnet_set.step_filename, self.magnet_set.export_dir
+        start_id = (
+            cubit.get_last_id("volume") if cubit.get_last_id("volume") else 1
         )
 
-        self.magnet_set.volume_ids = range(1, last_vol_id + 1)
+        last_vol_id = cubit_io.cubit_importer(
+            self.magnet_set.geometry_filename, self.magnet_set.export_dir
+        )
+
+        self.magnet_set.volume_ids = range(start_id + 1, last_vol_id + 1)
 
     def _tag_materials_legacy(self):
         """Applies material tags to corresponding CAD volumes for legacy DAGMC
@@ -391,7 +395,7 @@ class Stellarator(object):
             self._import_ivb_step()
 
         if self.magnet_set:
-            self._import_magnets_step()
+            self._import_magnets_geom()
 
         if skip_imprint:
             self.invessel_build.merge_layer_surfaces()
@@ -693,7 +697,7 @@ def parastell():
         nwl_required_keys = ["toroidal_angles", "poloidal_angles", "wall_s"]
 
         nwl_build = {}
-        for key in nwl_keys:
+        for key in nwl_required_keys:
             nwl_build[key] = invessel_build[key]
         nwl_build["radial_build"] = {}
 

@@ -57,6 +57,8 @@ class MagnetSet(object):
         self.scale = m2cm
         self.mat_tag = "magnets"
 
+        self.geometry_filename = None
+
         for name in kwargs.keys() & (
             "start_line",
             "sample_mod",
@@ -258,11 +260,9 @@ class MagnetSet(object):
         self._logger.info("Exporting STEP file for magnet coils...")
 
         self.export_dir = export_dir
-        self.step_filename = step_filename
+        self.geometry_filename = Path(step_filename).with_suffix(".step")
 
-        export_path = Path(self.export_dir) / Path(
-            self.step_filename
-        ).with_suffix(".step")
+        export_path = Path(self.export_dir) / Path(self.geometry_filename)
 
         coil_set = cq.Compound.makeCompound(
             [coil.solid for coil in self.magnet_coils]
@@ -273,8 +273,8 @@ class MagnetSet(object):
         """Creates tetrahedral mesh of magnet volumes via Coreform Cubit."""
         self._logger.info("Generating tetrahedral mesh of magnet coils...")
 
-        last_vol_id = cubit_io.import_step_cubit(
-            self.step_filename, self.export_dir
+        last_vol_id = cubit_io.cubit_importer(
+            self.geometry_filename, self.export_dir
         )
 
         self.volume_ids = range(1, last_vol_id + 1)
@@ -298,6 +298,17 @@ class MagnetSet(object):
         cubit_io.export_mesh_cubit(
             filename=mesh_filename, export_dir=export_dir
         )
+
+    @classmethod
+    def from_custom_geometry(cls, custom_magnet_geom, export_dir="", **kwargs):
+        """Instantiate a mostly empty MagnetSet object with geometry_filename
+        pointing to custom_magnet_geom, so the custom geometry is used when
+        building DAGMC models
+        """
+        ms = MagnetSet(custom_magnet_geom, 0, 0, 0, **kwargs)
+        ms.geometry_filename = custom_magnet_geom
+        ms.export_dir = export_dir
+        return ms
 
 
 class MagnetCoil(object):
