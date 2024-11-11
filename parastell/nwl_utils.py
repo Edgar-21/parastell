@@ -329,6 +329,7 @@ def nwl_plot(
     chunks = math.ceil(len(coords) / chunk_size)
 
     for i in range(chunks):
+        print('chunk', i)
         phi_coord_subset, theta_coord_subset = flux_coords(
             plas_eq,
             wall_s,

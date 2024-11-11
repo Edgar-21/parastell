@@ -303,6 +303,20 @@ class Stellarator(object):
         self.source_mesh.create_vertices()
         self.source_mesh.create_mesh()
 
+    def _import_magnets_geom(self):
+        """Import STEP file for magnet set into Coreform Cubit.
+        (Internal function not intended to be called externally)
+        """
+        start_id = (
+            cubit.get_last_id("volume") if cubit.get_last_id("volume") else 1
+        )
+
+        last_vol_id = cubit_io.cubit_importer(
+            self.magnet_set.geometry_filename, self.magnet_set.export_dir
+        )
+
+        self.magnet_set.volume_ids = range(start_id + 1, last_vol_id + 1)
+
     def export_source_mesh(self, filename="source_mesh", export_dir=""):
         """Export source mesh
 
@@ -352,6 +366,19 @@ class Stellarator(object):
                 vol_id_str = str(block_id)
                 make_material_block(data["mat_tag"], block_id, vol_id_str)
 
+    def _import_ivb_step(self):
+        """Imports STEP files from in-vessel build into Coreform Cubit.
+        (Internal function not intended to be called externally)
+        """
+        for (
+            name,
+            data,
+        ) in self.invessel_build.radial_build.radial_build.items():
+            vol_id = cubit_io.import_step_cubit(
+                name, self.invessel_build.export_dir
+            )
+            data["vol_id"] = vol_id
+
     def build_cubit_model(self, skip_imprint=False, legacy_faceting=True):
         """Build model for DAGMC neutronics H5M file of Parastell components via
         Coreform Cubit
@@ -369,17 +396,16 @@ class Stellarator(object):
             "Building DAGMC neutronics model via Coreform Cubit..."
         )
 
-        # Ensure fresh Cubit instance
         if cubit_io.initialized:
             cubit.cmd("new")
         else:
             cubit_io.init_cubit()
 
         if self.invessel_build:
-            self.invessel_build.import_step_cubit()
+            self._import_ivb_step()
 
         if self.magnet_set:
-            self.magnet_set.import_step_cubit()
+            self._import_magnets_geom()
 
         if skip_imprint:
             self.invessel_build.merge_layer_surfaces()

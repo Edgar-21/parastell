@@ -57,6 +57,8 @@ class MagnetSet(object):
         self.scale = m2cm
         self.mat_tag = "magnets"
 
+        self.geometry_filename = None
+
         for name in kwargs.keys() & (
             "start_line",
             "sample_mod",
@@ -191,10 +193,18 @@ class MagnetSet(object):
             for coil in self.magnet_coils
             if coil.in_toroidal_extent(lower_bound, upper_bound)
         ]
-        self.magnet_coils = filtered_coils
+
+        # Compute toroidal angles of filament centers of mass
+        com_list = np.array([coil.center_of_mass for coil in filtered_coils])
+        com_toroidal_angles = np.arctan2(com_list[:, 1], com_list[:, 0])
+        # Ensure angles are positive
+        com_toroidal_angles = (com_toroidal_angles + 2 * np.pi) % (2 * np.pi)
 
         # Sort coils by center-of-mass toroidal angle and overwrite stored list
-        self.magnet_coils = self.sort_coils_toroidally()
+        self.magnet_coils = [
+            coil
+            for _, coil in sorted(zip(com_toroidal_angles, filtered_coils))
+        ]
 
     def _cut_magnets(self):
         """Cuts the magnets at the planes defining the toriodal extent.
@@ -238,18 +248,6 @@ class MagnetSet(object):
 
         self._cut_magnets()
 
-    def import_step_cubit(self):
-        """Import STEP file for magnet set into Coreform Cubit."""
-        first_vol_id = 1
-        if cubit_io.initialized:
-            first_vol_id += cubit.get_last_id("volume")
-
-        last_vol_id = cubit_io.import_step_cubit(
-            self.step_filename, self.export_dir
-        )
-
-        self.volume_ids = list(range(first_vol_id, last_vol_id + 1))
-
     def export_step(self, step_filename="magnet_set", export_dir=""):
         """Export CAD solids as a STEP file via CadQuery.
 
@@ -262,39 +260,28 @@ class MagnetSet(object):
         self._logger.info("Exporting STEP file for magnet coils...")
 
         self.export_dir = export_dir
-        self.step_filename = step_filename
+        self.geometry_filename = Path(step_filename).with_suffix(".step")
 
-        export_path = Path(self.export_dir) / Path(
-            self.step_filename
-        ).with_suffix(".step")
+        export_path = Path(self.export_dir) / Path(self.geometry_filename)
 
         coil_set = cq.Compound.makeCompound(
             [coil.solid for coil in self.magnet_coils]
         )
         cq.exporters.export(coil_set, str(export_path))
 
-    def mesh_magnets(self, min_size=20.0, max_size=50.0, max_gradient=1.5):
-        """Creates tetrahedral mesh of magnet volumes via Coreform Cubit.
-
-        Arguments:
-            min_size (float): minimum size of mesh elements (defaults to 20.0).
-            max_size (float): maximum size of mesh elements (defaults to 50.0).
-            max_gradient (float): maximum transition in mesh element size
-                (defaults to 1.5).
-        """
+    def mesh_magnets(self):
+        """Creates tetrahedral mesh of magnet volumes via Coreform Cubit."""
         self._logger.info("Generating tetrahedral mesh of magnet coils...")
 
-        if not hasattr(self, "volume_ids"):
-            self.import_step_cubit()
-
-        volume_ids_str = " ".join(str(id) for id in self.volume_ids)
-        cubit.cmd(f"volume {volume_ids_str} scheme tetmesh")
-        cubit.cmd(
-            f"volume {volume_ids_str} sizing function type skeleton min_size "
-            f"{min_size} max_size {max_size} max_gradient {max_gradient} "
-            "min_num_layers_3d 1 min_num_layers_2d 1 min_num_layers_1d 1"
+        last_vol_id = cubit_io.cubit_importer(
+            self.geometry_filename, self.export_dir
         )
-        cubit.cmd(f"mesh volume {volume_ids_str}")
+
+        self.volume_ids = range(1, last_vol_id + 1)
+
+        for vol in self.volume_ids:
+            cubit.cmd(f"volume {vol} scheme tetmesh")
+            cubit.cmd(f"mesh volume {vol}")
 
     def export_mesh(self, mesh_filename="magnet_mesh", export_dir=""):
         """Creates tetrahedral mesh of magnet volumes and exports H5M format
@@ -312,16 +299,16 @@ class MagnetSet(object):
             filename=mesh_filename, export_dir=export_dir
         )
 
-    def sort_coils_toroidally(self):
-        """Reorders list of coils by toroidal angle on range [-pi, pi].
-
-        Arguments:
-            magnet_coils (list of object): list of MagnetCoil class objects.
-
-        Returns:
-            (list of object): sorted list of MagnetCoil class objects.
+    @classmethod
+    def from_custom_geometry(cls, custom_magnet_geom, export_dir="", **kwargs):
+        """Instantiate a mostly empty MagnetSet object with geometry_filename
+        pointing to custom_magnet_geom, so the custom geometry is used when
+        building DAGMC models
         """
-        return sorted(self.magnet_coils, key=lambda x: x.com_toroidal_angle())
+        ms = MagnetSet(custom_magnet_geom, 0, 0, 0, **kwargs)
+        ms.geometry_filename = custom_magnet_geom
+        ms.export_dir = export_dir
+        return ms
 
 
 class MagnetCoil(object):

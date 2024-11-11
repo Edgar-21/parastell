@@ -43,11 +43,12 @@ def import_step_cubit(filename, import_dir):
         vol_id (int): Cubit volume ID of imported CAD solid.
     """
     init_cubit()
-
+    cubit.cmd("compress")
     import_path = Path(import_dir) / Path(filename).with_suffix(".step")
     cubit.cmd(f'import step "{import_path}" heal')
     vol_id = cubit.get_last_id("volume")
-
+    cubit.cmd(f"healer autoheal vol {vol_id} rebuild")
+    cubit.cmd("compress")
     return vol_id
 
 
@@ -65,6 +66,26 @@ def export_step_cubit(filename, export_dir=""):
     cubit.cmd(f'export step "{export_path}" overwrite')
 
 
+def import_cub5_cubit(filename, import_dir):
+    """imports cub5 file with Coreform Cubit.
+
+    Arguments:
+        filename (str): name of cub5 input file, excluding '.step' extension.
+        import_dir (str): directory from which to import cub5 file.
+
+    Returns:
+        vol_id (int): Cubit volume ID of imported CAD solid.
+    """
+    init_cubit()
+    cubit.cmd("compress")
+    import_path = Path(import_dir) / Path(filename).with_suffix(".cub5")
+    cubit.cmd(
+        f'import cubit "{import_path}" nofreesurfaces attributes_on separate_bodies'
+    )
+    vol_id = cubit.get_last_id("volume")
+    return vol_id
+
+
 def export_cub5(filename, export_dir=""):
     """Export cub5 representation of model (native Cubit format).
 
@@ -79,7 +100,7 @@ def export_cub5(filename, export_dir=""):
     cubit.cmd(f'save cub5 "{export_path}" overwrite')
 
 
-def export_mesh_cubit(filename, export_dir="", delete_upon_export=True):
+def export_mesh_cubit(filename, export_dir=""):
     """Exports Cubit mesh to H5M file format, first exporting to Exodus format
     via Coreform Cubit and converting to H5M via MOAB.
 
@@ -87,8 +108,6 @@ def export_mesh_cubit(filename, export_dir="", delete_upon_export=True):
         filename (str): name of H5M output file, excluding '.h5m' extension.
         export_dir (str): directory to which to export the H5M output file
             (defaults to empty string).
-        delete_upon_export (bool): delete the mesh from the Cubit instance
-            after exporting. Prevents inclusion of mesh in future exports.
     """
     init_cubit()
 
@@ -98,11 +117,6 @@ def export_mesh_cubit(filename, export_dir="", delete_upon_export=True):
     cubit.cmd(f'export mesh "{exo_path}" overwrite')
     subprocess.run(f"mbconvert {exo_path} {h5m_path}", shell=True)
     Path.unlink(exo_path)
-
-    # Delete any meshes present to prevent inclusion in future Cubit mesh
-    # exports
-    if delete_upon_export:
-        cubit.cmd(f"delete mesh volume all propagate")
 
 
 def export_dagmc_cubit_legacy(
@@ -158,7 +172,6 @@ def export_dagmc_cubit_native(
     deviation_angle=5.0,
     filename="dagmc",
     export_dir="",
-    delete_upon_export=True,
 ):
     """Exports DAGMC neutronics H5M file of ParaStell components via native
     faceting method for Coreform Cubit.
@@ -173,8 +186,6 @@ def export_dagmc_cubit_native(
             (defaults to 'dagmc').
         export_dir (str): directory to which to export the DAGMC output file
             (defaults to empty string).
-        delete_upon_export (bool): delete the mesh from the Cubit instance
-            after exporting. Prevents inclusion of mesh in future exports.
     """
     init_cubit()
 
@@ -188,7 +199,21 @@ def export_dagmc_cubit_native(
     export_path = Path(export_dir) / Path(filename).with_suffix(".h5m")
     cubit.cmd(f'export cf_dagmc "{export_path}" overwrite')
 
-    # Delete any meshes present to prevent inclusion in future Cubit mesh
-    # exports
-    if delete_upon_export:
-        cubit.cmd(f"delete mesh volume all propagate")
+
+def cubit_importer(filename, import_dir=""):
+    """Attempts to open a geometry file with the appropriate cubit_io function,
+        based on file extension
+
+    Arguments:
+        filename (path): Path to file to import, including the suffix
+        import_dir (str): directory from which to import cub5 file.
+
+    Returns:
+        vol_id (int): Cubit volume ID of imported CAD solid.
+    """
+    filename = Path(filename)
+    if filename.suffix == ".step" or filename.suffix == ".stp":
+        vol_id = import_step_cubit(filename, import_dir)
+    elif filename.suffix == ".cub5":
+        vol_id = import_cub5_cubit(filename, import_dir)
+    return vol_id
