@@ -387,6 +387,7 @@ class InVesselBuild(object):
         cubit_io.init_cubit()
         self._logger.info("Creating faceted volumes in Coreform Cubit...")
         for surface_name, surface in self.Surfaces.items():
+            self._logger.info(f"Building faceted volume for {surface_name}...")
             surface.build_cubit_vertices_from_loci()
             surface.build_cubit_surface()
             # TODO handle when full device is specified, rather than one period
