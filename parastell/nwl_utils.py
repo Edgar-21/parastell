@@ -7,8 +7,11 @@ import matplotlib.pyplot as plt
 import concurrent.futures
 import math
 import matplotlib
+from pymoab import core, types
 
 matplotlib.use("agg")
+
+mbc = core.Core()
 
 
 def extract_ss(ss_file):
@@ -270,6 +273,16 @@ def area_from_corners(corners):
     return area
 
 
+def create_moab_tris_from_corners(corners):
+    tri_1_verts = mbc.create_vertices(corners[0:-1])
+    tri_2_verts = mbc.create_vertices([corners[3], corners[2], corners[0]])
+
+    tri_1 = mbc.create_element(types.MBTRI, tri_1_verts)
+    tri_2 = mbc.create_element(types.MBTRI, tri_2_verts)
+
+    return tri_1, tri_2
+
+
 def nwl_plot(
     source_file,
     ss_file,
@@ -388,6 +401,8 @@ def nwl_plot(
 
     # construct area array
     area_array = np.zeros((num_phi, num_theta))
+    mb_tris = []
+    mb_data = []
 
     for phi_index in range(num_phi):
         for theta_index in range(num_theta):
@@ -398,9 +413,24 @@ def nwl_plot(
             corner4 = bin_arr[phi_index + 1, theta_index]
             corners = np.array([corner1, corner2, corner3, corner4])
             area = area_from_corners(corners)
+            tri_1, tri_2 = create_moab_tris_from_corners(corners)
+            mb_tris.append(tri_1)
+            mb_tris.append(tri_2)
             area_array[phi_index, theta_index] = area
+            nwl = nwl_mat[phi_index, theta_index] / area
+            mb_data.append(nwl)
+            mb_data.append(nwl)
 
     nwl_mat = nwl_mat / area_array
     plot(nwl_mat, phi_pts, theta_pts, num_levels)
-
+    tag_name = "nwl MW/m2"
+    tag_handle = mbc.tag_get_handle(
+        tag_name,
+        size=1,
+        tag_type=types.MB_TYPE_DOUBLE,
+        storage_type=types.MB_TAG_DENSE,
+        create_if_missing=True,
+    )
+    mbc.tag_set_data(tag_handle, mb_tris, mb_data)
+    mbc.write_file("nwl_mesh.h5m")
     return nwl_mat, phi_pts, theta_pts, area_array
