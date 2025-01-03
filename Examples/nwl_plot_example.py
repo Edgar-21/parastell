@@ -17,6 +17,20 @@ tor_ext = 90.0
 pol_ext = 360.0
 wall_s = 1.08
 
-nwl.nwl_plot(
-    source_file, ss_file, plas_eq, tor_ext, pol_ext, wall_s, num_threads=2
+crossings = nwl.extract_coords(source_file)
+source_strength = sum(nwl.extract_ss(ss_file))
+nwl_mat, area_array, phi_pts, theta_pts, bin_arr = (
+    nwl.extract_nwl_from_surface_crossings(
+        crossings,
+        source_strength,
+        plas_eq,
+        tor_ext,
+        pol_ext,
+        wall_s,
+        num_phi=30,
+        num_theta=25,
+        num_threads=10,
+    )
 )
+nwl.plot_nwl(nwl_mat, phi_pts, theta_pts, 10, filename="test_nwl.png")
+nwl.write_nwl_to_mesh(nwl_mat, bin_arr)

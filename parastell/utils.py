@@ -6,6 +6,9 @@ from scipy.ndimage import gaussian_filter
 
 m2cm = 100
 m3tocm3 = m2cm * m2cm * m2cm
+dt_neutron_energy_ev = 14.1e6
+eV2J = 1.60218e-19
+J2MJ = 1e-6
 
 
 def downsample_loop(list, sample_mod):

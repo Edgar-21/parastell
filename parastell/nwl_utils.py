@@ -8,10 +8,9 @@ import concurrent.futures
 import math
 import matplotlib
 from pymoab import core, types
+from parastell.utils import dt_neutron_energy_ev, eV2J, J2MJ
 
 matplotlib.use("agg")
-
-mbc = core.Core()
 
 
 def extract_ss(ss_file):
@@ -218,7 +217,9 @@ def extract_coords(source_file):
     return coords
 
 
-def plot(nwl_mat, phi_pts, theta_pts, num_levels):
+def plot_nwl(
+    nwl_mat, phi_pts, theta_pts, num_levels, title="NWL", filename="NWL.png"
+):
     """Generates contour plot of NWL.
 
     Arguments:
@@ -227,6 +228,9 @@ def plot(nwl_mat, phi_pts, theta_pts, num_levels):
         phi_pts (array of float): centroids of toroidal angle bins (rad).
         theta_bins (array of float): centroids of poloidal angle bins (rad).
         num_levels (int): number of contour regions.
+        title (str): plot title, default "NWL"
+        filename (str): path to save the figure to. Defaults to "NWL.png" in
+            the cwd.
     """
     phi_pts = np.rad2deg(phi_pts)
     theta_pts = np.rad2deg(theta_pts)
@@ -238,7 +242,8 @@ def plot(nwl_mat, phi_pts, theta_pts, num_levels):
     cbar.ax.set_ylabel("NWL (MW/m2)")
     plt.xlabel("Toroidal Angle (degrees)")
     plt.ylabel("Poloidal Angle (degrees)")
-    fig.savefig("NWL.png")
+    plt.title(title)
+    fig.savefig(filename)
 
 
 def area_from_corners(corners):
@@ -273,8 +278,19 @@ def area_from_corners(corners):
     return area
 
 
-def create_moab_tris_from_corners(corners):
-    tri_1_verts = mbc.create_vertices(corners[0:-1])
+def create_moab_tris_from_corners(corners, mbc):
+    """Create 2 moab triangle elements from a list of 4 x y z points.
+
+    Arguments:
+        corners (4x3 numpy array): list of 4 (x,y,z) points. Connecting the
+            points in the order given should result in a polygon
+        mbc (pymoab core): pymoab core instance to create elements with.
+
+    Returns:
+        tri_1 (pymoab element): Triangular mesh element.
+        tri_2 (pymoab element): Triangular mesh element.
+    """
+    tri_1_verts = mbc.create_vertices([corners[0], corners[1], corners[2]])
     tri_2_verts = mbc.create_vertices([corners[3], corners[2], corners[0]])
 
     tri_1 = mbc.create_element(types.MBTRI, tri_1_verts)
@@ -283,34 +299,68 @@ def create_moab_tris_from_corners(corners):
     return tri_1, tri_2
 
 
-def nwl_plot(
-    source_file,
-    ss_file,
+def write_nwl_to_mesh(
+    nwl_mat, bin_arr, tag_name="NWL", filename="nwl_mesh.vtk"
+):
+    """Use pymoab to export NWL data to a mesh for visualization.
+
+    Arguments:
+        nwl_mat (numpy array): NxM array of NWL values.
+        bin_arr (numpy array): NxMx3 array of edges of bins in xyz space.
+        tag_name (str): Tag for the NWL data on the mesh. Default "NWL"
+        filename (str): Path to save the mesh to. Default "nwl_mesh.vtk" in the
+            cwd.
+    """
+    mbc = core.Core()
+    mb_tris = []
+    mb_data = []
+    for phi_index, theta_index in np.ndindex(nwl_mat.shape):
+        nwl = nwl_mat[phi_index, theta_index]
+        corner1 = bin_arr[phi_index, theta_index]
+        corner2 = bin_arr[phi_index, theta_index + 1]
+        corner3 = bin_arr[phi_index + 1, theta_index + 1]
+        corner4 = bin_arr[phi_index + 1, theta_index]
+        corners = [corner1, corner2, corner3, corner4]
+        tri_1, tri_2 = create_moab_tris_from_corners(corners, mbc)
+        mb_tris += [tri_1, tri_2]
+        mb_data += [nwl, nwl]
+
+    tag_handle = mbc.tag_get_handle(
+        tag_name,
+        size=1,
+        tag_type=types.MB_TYPE_DOUBLE,
+        storage_type=types.MB_TAG_DENSE,
+        create_if_missing=True,
+    )
+    mbc.tag_set_data(tag_handle, mb_tris, mb_data)
+    mbc.write_file(filename)
+
+
+def extract_nwl_from_surface_crossings(
+    crossings,
+    source_strength,
     plas_eq,
     tor_ext,
     pol_ext,
     wall_s,
     num_phi=101,
     num_theta=101,
-    num_levels=10,
-    num_crossings=None,
     chunk_size=None,
     num_threads=1,
 ):
-    """Computes and plots NWL. Assumes toroidal extent is less than 360 degrees
+    """Bins a list of xyz coordinates onto a 2-D histogram in poloidal,
+    toroidal space.
 
     Arguments:
-        source_file (str): path to OpenMC surface source file.
-        ss_file (str): source strength input file.
+        crossings (iterable of iterable of float): Iterable of x, y, z surface
+            crossing coordinates.
+        source_strength (float): Source strength, in neutrons/second.
         plas_eq (str): path to plasma equilibrium NetCDF file.
         tor_ext (float): toroidal extent of model (deg).
         pol_ext (float): poloidal extent of model (deg).
         wall_s (float): closed flux surface label extrapolation at wall.
         num_phi (int): number of toroidal angle bins (defaults to 101).
         num_theta (int): number of poloidal angle bins (defaults to 101).
-        num_levels (int): number of contour regions (defaults to 10).
-        num_crossings (int): number of crossings to use from the surface source.
-            If None, then all crossings will be used
         chunk_size (int): number of crossings to calculate at once, to help
             with potential memory limits. If None all crossings will be done
             at once
@@ -318,18 +368,16 @@ def nwl_plot(
             defaults to 1.
 
     Returns:
-        nwl_mat (numpy array): array used to create the NWL plot
-        phi_pts (numpy array): phi axis of NWL plot
-        theta_pts (numpy array): theta axis of NWL plot
-        area_array (numpy array): area array used to normalize nwl_mat
+        nwl_mat (numpy array): NxM array of NWL values for each bin in MW/m2.
+        area_array (numpy array): NxM array of area values for each bin in m2.
+        phi_pts (numpy array): Centroids of bins in toroidal direction in
+            radians.
+        theta_pts (numpy array): Centroids of bins in poloidal direction in
+            radians.
+        bin_arr (numpy array): NxMx3 array of edges of bins in xyz space in m.
     """
     tor_ext = np.deg2rad(tor_ext)
     pol_ext = np.deg2rad(pol_ext)
-
-    coords = extract_coords(source_file)
-
-    if num_crossings is not None:
-        coords = coords[0:num_crossings]
 
     vmec = read_vmec.VMECData(plas_eq)
 
@@ -337,15 +385,15 @@ def nwl_plot(
     theta_coords = []
 
     if chunk_size is None:
-        chunk_size = len(coords)
+        chunk_size = len(crossings)
 
-    chunks = math.ceil(len(coords) / chunk_size)
+    chunks = math.ceil(len(crossings) / chunk_size)
 
     for i in range(chunks):
         phi_coord_subset, theta_coord_subset = flux_coords(
             plas_eq,
             wall_s,
-            coords[i * chunk_size : (i + 1) * chunk_size],
+            crossings[i * chunk_size : (i + 1) * chunk_size],
             num_threads,
         )
         phi_coords += phi_coord_subset
@@ -376,33 +424,25 @@ def nwl_plot(
     phi_pts = np.linspace(0, tor_ext, num=num_phi)
     theta_pts = np.linspace(0, pol_ext, num=num_theta)
 
-    # Define fusion neutron energy (eV)
-    n_energy = 14.1e6
-    # Define eV to joules constant
-    eV2J = 1.60218e-19
-    # Compute total neutron source strength (n/s)
-    strengths = extract_ss(ss_file)
-    SS = sum(strengths)
-    # Define joules to megajoules constant
-    J2MJ = 1e-6
-    # Define number of source particles
-    num_parts = len(coords)
-
-    nwl_mat = count_mat * n_energy * eV2J * SS * J2MJ / num_parts
+    nwl_mat = (
+        count_mat
+        * dt_neutron_energy_ev
+        * eV2J
+        * source_strength
+        * J2MJ
+        / len(crossings)
+    )
 
     # construct array of bin boundaries
     bin_arr = np.zeros((num_phi + 1, num_theta + 1, 3))
 
     for phi_bin, phi in enumerate(phi_bins):
         for theta_bin, theta in enumerate(theta_bins):
-
             x, y, z = vmec.vmec2xyz(wall_s, theta, phi)
             bin_arr[phi_bin, theta_bin, :] = [x, y, z]
 
     # construct area array
     area_array = np.zeros((num_phi, num_theta))
-    mb_tris = []
-    mb_data = []
 
     for phi_index in range(num_phi):
         for theta_index in range(num_theta):
@@ -413,24 +453,8 @@ def nwl_plot(
             corner4 = bin_arr[phi_index + 1, theta_index]
             corners = np.array([corner1, corner2, corner3, corner4])
             area = area_from_corners(corners)
-            tri_1, tri_2 = create_moab_tris_from_corners(corners)
-            mb_tris.append(tri_1)
-            mb_tris.append(tri_2)
             area_array[phi_index, theta_index] = area
-            nwl = nwl_mat[phi_index, theta_index] / area
-            mb_data.append(nwl)
-            mb_data.append(nwl)
 
     nwl_mat = nwl_mat / area_array
-    plot(nwl_mat, phi_pts, theta_pts, num_levels)
-    tag_name = "nwl MW/m2"
-    tag_handle = mbc.tag_get_handle(
-        tag_name,
-        size=1,
-        tag_type=types.MB_TYPE_DOUBLE,
-        storage_type=types.MB_TAG_DENSE,
-        create_if_missing=True,
-    )
-    mbc.tag_set_data(tag_handle, mb_tris, mb_data)
-    mbc.write_file("nwl_mesh.h5m")
-    return nwl_mat, phi_pts, theta_pts, area_array
+
+    return nwl_mat, area_array, phi_pts, theta_pts, bin_arr
