@@ -8,6 +8,7 @@ import cubit
 import cadquery as cq
 import cad_to_dagmc
 import pystell.read_vmec as read_vmec
+from pymoab import core, types
 
 from . import log
 from . import cubit_io
@@ -20,6 +21,28 @@ from .utils import (
 )
 
 export_allowed_kwargs = ["export_cad_to_dagmc", "dagmc_filename"]
+mbc = core.Core()
+
+
+def create_moab_tris_from_corners(corners, mbc):
+    """Create 2 moab triangle elements from a list of 4 x y z points.
+
+    Arguments:
+        corners (4x3 numpy array): list of 4 (x,y,z) points. Connecting the
+            points in the order given should result in a polygon
+        mbc (pymoab core): pymoab core instance to create elements with.
+
+    Returns:
+        tri_1 (pymoab element): Triangular mesh element.
+        tri_2 (pymoab element): Triangular mesh element.
+    """
+    tri_1_verts = mbc.create_vertices([corners[0], corners[1], corners[2]])
+    tri_2_verts = mbc.create_vertices([corners[3], corners[2], corners[0]])
+
+    tri_1 = mbc.create_element(types.MBTRI, tri_1_verts)
+    tri_2 = mbc.create_element(types.MBTRI, tri_2_verts)
+
+    return [tri_1, tri_2]
 
 
 def orient_spline_surfaces(volume_id):
@@ -373,6 +396,30 @@ class InVesselBuild(object):
                 delete_upon_export=True,
             )
 
+    def connect_ribs_with_tris_moab(self, rib1, rib2):
+        mb_tris = []
+        for rib_loci_index, _ in enumerate(rib1.rib_loci[0:-1]):
+            corner1 = rib1.rib_loci[rib_loci_index]
+            corner2 = rib1.rib_loci[rib_loci_index + 1]
+            corner3 = rib2.rib_loci[rib_loci_index + 1]
+            corner4 = rib2.rib_loci[rib_loci_index]
+            corners = [corner1, corner2, corner3, corner4]
+            mb_tris += create_moab_tris_from_corners(corners, mbc)
+
+    def generate_moab_end_cap_surfaces(self):
+        for surface, next_surface in zip(
+            list(self.Surfaces.values())[0:-1],
+            list(self.Surfaces.values())[1:],
+        ):
+            self.connect_ribs_with_tris_moab(
+                surface.Ribs[0], next_surface.Ribs[0]
+            )
+            self.connect_ribs_with_tris_moab(
+                surface.Ribs[-1], next_surface.Ribs[-1]
+            )
+        mbc.write_file("all_surfaces.h5m")
+        mbc.write_file("all_surfaces.vtk")
+
 
 class Surface(object):
     """An object representing a surface formed by lofting across a set of
@@ -440,6 +487,19 @@ class Surface(object):
     def get_loci(self):
         """Returns the set of point-loci defining the ribs in the surface."""
         return np.array([rib.rib_loci for rib in self.Ribs])
+
+    def generate_moab_surface(self):
+        """"""
+
+        mb_tris = []
+        for rib, next_rib in zip(self.Ribs[0:-1], self.Ribs[1:]):
+            for rib_pt_index, _ in enumerate(rib.rib_loci[0:-1]):
+                corner1 = rib.rib_loci[rib_pt_index]
+                corner2 = rib.rib_loci[rib_pt_index + 1]
+                corner3 = next_rib.rib_loci[rib_pt_index + 1]
+                corner4 = next_rib.rib_loci[rib_pt_index]
+                corners = [corner1, corner2, corner3, corner4]
+                mb_tris += create_moab_tris_from_corners(corners, mbc)
 
 
 class Rib(object):

@@ -47,38 +47,9 @@ radial_build_dict = {
 stellarator.construct_invessel_build(
     toroidal_angles, poloidal_angles, wall_s, radial_build_dict
 )
-# Export in-vessel component files
-stellarator.export_invessel_build(
-    export_cad_to_dagmc=False, export_dir=export_dir
-)
 
-# Define build parameters for magnet coils
-coils_file = "coils.example"
-width = 40.0
-thickness = 50.0
-toroidal_extent = 90.0
-# Construct magnets
-stellarator.construct_magnets(
-    coils_file, width, thickness, toroidal_extent, sample_mod=6
-)
-# Export magnet files
-stellarator.export_magnets(
-    step_filename="magnets",
-    export_mesh=True,
-    mesh_filename="magnet_mesh",
-    export_dir=export_dir,
-)
-
-# Define source mesh parameters
-mesh_size = (11, 81, 61)
-toroidal_extent = 90.0
-# Construct source
-stellarator.construct_source_mesh(mesh_size, toroidal_extent)
-# Export source file
-stellarator.export_source_mesh(filename="source_mesh", export_dir=export_dir)
-
-# Build Cubit model of Parastell Components
-stellarator.build_cubit_model(skip_imprint=False, legacy_faceting=True)
-
-# Export DAGMC neutronics H5M file
-stellarator.export_dagmc(filename="dagmc", export_dir=export_dir)
+for surf_name, surf in stellarator.invessel_build.Surfaces.items():
+    print("doing moab stuff")
+    print(surf_name)
+    surf.generate_moab_surface()
+    stellarator.invessel_build.generate_moab_end_cap_surfaces()
