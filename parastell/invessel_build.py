@@ -21,7 +21,6 @@ from .utils import (
 )
 
 export_allowed_kwargs = ["export_cad_to_dagmc", "dagmc_filename"]
-mbc = core.Core()
 
 
 def create_moab_tris_from_corners(corners, mbc):
@@ -113,7 +112,14 @@ class InVesselBuild(object):
     """
 
     def __init__(self, vmec_obj, radial_build, logger=None, **kwargs):
-
+        self.mbc = core.Core()
+        self.surf_dim_tag = self.mbc.tag_get_handle(
+            "GEOM_DIMENSION",
+            1,
+            types.MB_TYPE_INTEGER,
+            types.MB_TAG_DENSE,
+            create_if_missing=True,
+        )
         self.logger = logger
         self.vmec_obj = vmec_obj
         self.radial_build = radial_build
@@ -404,21 +410,35 @@ class InVesselBuild(object):
             corner3 = rib2.rib_loci[rib_loci_index + 1]
             corner4 = rib2.rib_loci[rib_loci_index]
             corners = [corner1, corner2, corner3, corner4]
-            mb_tris += create_moab_tris_from_corners(corners, mbc)
+            mb_tris += create_moab_tris_from_corners(corners, self.mbc)
+        return mb_tris
 
     def generate_moab_end_cap_surfaces(self):
         for surface, next_surface in zip(
             list(self.Surfaces.values())[0:-1],
             list(self.Surfaces.values())[1:],
         ):
-            self.connect_ribs_with_tris_moab(
+            start_tris = self.connect_ribs_with_tris_moab(
                 surface.Ribs[0], next_surface.Ribs[0]
             )
-            self.connect_ribs_with_tris_moab(
+            surface.start_cap_entity_set = self.mbc.create_meshset()
+            self.mbc.add_entities(surface.start_cap_entity_set, start_tris)
+            self.mbc.tag_set_data(
+                self.surf_dim_tag, surface.start_cap_entity_set, 2
+            )
+
+            end_tris = self.connect_ribs_with_tris_moab(
                 surface.Ribs[-1], next_surface.Ribs[-1]
             )
-        mbc.write_file("all_surfaces.h5m")
-        mbc.write_file("all_surfaces.vtk")
+            surface.end_cap_entity_set = self.mbc.create_meshset()
+            self.mbc.add_entities(surface.end_cap_entity_set, end_tris)
+            self.mbc.tag_set_data(
+                self.surf_dim_tag, surface.end_cap_entity_set, 2
+            )
+
+        self.mbc.write_file("all_surfaces.h5m")
+        self.mbc.write_file("all_surfaces.vtk")
+        self.mbc.write_file("all_surfaces.stl")
 
 
 class Surface(object):
@@ -488,10 +508,10 @@ class Surface(object):
         """Returns the set of point-loci defining the ribs in the surface."""
         return np.array([rib.rib_loci for rib in self.Ribs])
 
-    def generate_moab_surface(self):
+    def generate_moab_surface(self, mbc, surf_dim_tag):
         """"""
-
         mb_tris = []
+        self.contour_surface_entity_set = mbc.create_meshset()
         for rib, next_rib in zip(self.Ribs[0:-1], self.Ribs[1:]):
             for rib_pt_index, _ in enumerate(rib.rib_loci[0:-1]):
                 corner1 = rib.rib_loci[rib_pt_index]
@@ -500,6 +520,8 @@ class Surface(object):
                 corner4 = next_rib.rib_loci[rib_pt_index]
                 corners = [corner1, corner2, corner3, corner4]
                 mb_tris += create_moab_tris_from_corners(corners, mbc)
+        mbc.add_entities(self.contour_surface_entity_set, mb_tris)
+        mbc.tag_set_data(surf_dim_tag, self.contour_surface_entity_set, 2)
 
 
 class Rib(object):
