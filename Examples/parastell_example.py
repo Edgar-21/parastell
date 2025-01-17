@@ -55,7 +55,11 @@ radial_build_dict = {
 }
 # Construct in-vessel components
 stellarator.construct_invessel_build(
-    toroidal_angles, poloidal_angles, wall_s, radial_build_dict
+    toroidal_angles,
+    poloidal_angles,
+    wall_s,
+    radial_build_dict,
+    use_pydagmc=True,
 )
 
 for surf in stellarator.invessel_build.dag_model.surfaces:
