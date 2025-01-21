@@ -69,3 +69,8 @@ for surf in stellarator.invessel_build.dag_model.surfaces:
 print(stellarator.invessel_build.dag_model.volumes)
 
 print(stellarator.invessel_build.dag_model.groups)
+
+stellarator.construct_magnets(
+    "../tests/files_for_tests/coils.example", 10, 10, 90
+)
+stellarator.export_magnets()
